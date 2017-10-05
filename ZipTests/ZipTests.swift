@@ -315,4 +315,17 @@ class ZipTests: XCTestCase {
         XCTAssertTrue(Zip.isValidFileExtension("cbz"))
     }
     
+    func testDataZip() {
+        let example = "String to be compressed"
+        let data = example.data(using: .utf8)!
+        
+        do {
+            let data = try Zip.zip(data: data, chunkSize: 4096)
+            print("Data is \(data == nil ? "nil" : "not nil")")
+            XCTAssertTrue(data != nil)
+        }
+        catch {
+            XCTFail()
+        }
+    }
 }

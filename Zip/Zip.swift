@@ -17,6 +17,8 @@ public enum ZipError: Error {
     case unzipFail
     /// Zip fail
     case zipFail
+    /// Could not create temp file
+    case failedToCreateTempFile
     
     /// User readable description
     public var description: String {
@@ -24,6 +26,7 @@ public enum ZipError: Error {
         case .fileNotFound: return NSLocalizedString("File not found.", comment: "")
         case .unzipFail: return NSLocalizedString("Failed to unzip file.", comment: "")
         case .zipFail: return NSLocalizedString("Failed to zip file.", comment: "")
+        case .failedToCreateTempFile: return NSLocalizedString("Failed to create temporary file with data to be compressed.", comment: "")
         }
     }
 }
@@ -248,6 +251,49 @@ public class Zip {
     
     // MARK: Zip
     
+    /**
+     Zip data.
+     See zipFiles func for description.
+     */
+    
+    public class func zip(data: Data, password: String? = nil, compression: ZipCompression = .DefaultCompression, chunkSize: Int = 16384, progress: ((_ progress: Double) -> ())? = nil) throws -> Data? {
+        
+        let uuid = UUID().uuidString
+        
+        let dirUrl: URL
+        
+        do {
+            dirUrl = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("zip")
+            try FileManager.default.createDirectory(at: dirUrl, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            print("Could not access 'zip' dir in caches directory")
+            return nil
+        }
+
+        let tempDataUrl = dirUrl.appendingPathComponent("_dataToZip_\(uuid)")
+        let tempZipUrl = dirUrl.appendingPathComponent("_zippedData_\(uuid)")
+
+        guard FileManager.default.createFile(atPath: tempDataUrl.path, contents: data, attributes: nil) else {
+            // failed to create temp file
+            throw ZipError.failedToCreateTempFile
+        }
+
+        try zipFiles(paths: [tempDataUrl], zipFilePath: tempZipUrl, password: password, compression: compression, chunkSize: chunkSize, progress: progress)
+
+        // compressed, get result data & call completion
+        do {
+            let data = try Data(contentsOf: tempZipUrl)
+            
+            // remove temp files
+            _ = try? FileManager.default.removeItem(at: tempDataUrl)
+            _ = try? FileManager.default.removeItem(at: tempZipUrl)
+            return data
+        } catch {
+            print("Error while reading zipped contents: \(error), \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
     
     /**
      Zip files.
@@ -262,7 +308,7 @@ public class Zip {
      
      - notes: Supports implicit progress composition
      */
-    public class func zipFiles(paths: [URL], zipFilePath: URL, password: String?, compression: ZipCompression = .DefaultCompression, progress: ((_ progress: Double) -> ())?) throws {
+    public class func zipFiles(paths: [URL], zipFilePath: URL, password: String?, compression: ZipCompression = .DefaultCompression, chunkSize: Int = 16384, progress: ((_ progress: Double) -> ())?) throws {
         
         // File manager
         let fileManager = FileManager.default
@@ -272,9 +318,6 @@ public class Zip {
         
         // Process zip paths
         let processedPaths = ZipUtilities().processZipPaths(paths)
-        
-        // Zip set up
-        let chunkSize: Int = 16384
         
         // Progress handler set up
         var currentPosition: Double = 0.0
